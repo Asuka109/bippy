@@ -7,5 +7,6 @@ export default defineConfig({
 			reporter: ["text", "json", "html"],
 			include: ["src/*.ts"],
 		},
+		setupFiles: ["./setup-test.ts"],
 	},
 });
