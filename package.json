@@ -1,15 +1,16 @@
 {
 	"name": "bippy",
-	"version": "0.2.7",
+	"version": "0.2.18",
 	"description": "hack into react internals",
 	"keywords": [
+		"bippy",
 		"react",
 		"react-instrumentation",
 		"react instrumentation",
 		"fiber",
 		"internals"
 	],
-	"homepage": "https://github.com/aidenybai/bippy#readme",
+	"homepage": "https://bippy.dev",
 	"bugs": {
 		"url": "https://github.com/aidenybai/bippy/issues"
 	},
@@ -107,15 +108,19 @@
 		"esbuild": "^0.24.2",
 		"esbuild-plugin-inline-worker": "^0.1.1",
 		"happy-dom": "^15.11.7",
+		"pkg-pr-new": "^0.0.39",
 		"publint": "^0.2.12",
 		"react": "19.0.0",
+		"react-devtools-inline": "^6.0.1",
 		"react-dom": "19.0.0",
 		"react-inspector": "^6.0.2",
 		"react-reconciler": "^0.31.0",
+		"react-refresh": "^0.16.0",
 		"terser": "^5.36.0",
 		"tsup": "^8.2.4",
 		"vitest": "^2.1.8"
 	},
+	"packageManager": "pnpm@9.15.2",
 	"publishConfig": {
 		"access": "public"
 	}

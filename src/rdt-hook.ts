@@ -3,6 +3,9 @@ import type { ReactDevToolsGlobalHook, ReactRenderer } from './types.js';
 export const version = process.env.VERSION;
 export const BIPPY_INSTRUMENTATION_STRING = `bippy-${version}`;
 
+const objectDefineProperty = Object.defineProperty;
+const objectHasOwnProperty = Object.prototype.hasOwnProperty;
+
 const NO_OP = () => {
   /**/
 };
@@ -28,10 +31,14 @@ export const isRealReactDevtools = (rdtHook = getRDTHook()): boolean => {
 };
 
 let isReactRefreshOverride = false;
+let injectFnStr: string | undefined = undefined;
 
 export const isReactRefresh = (rdtHook = getRDTHook()): boolean => {
   if (isReactRefreshOverride) return true;
-  return !('checkDCE' in rdtHook);
+  if (typeof rdtHook.inject === 'function') {
+    injectFnStr = rdtHook.inject.toString();
+  }
+  return Boolean(injectFnStr?.includes('(injected)'));
 };
 
 export const installRDTHook = (
@@ -61,8 +68,30 @@ export const installRDTHook = (
     _instrumentationIsActive: false,
   };
   try {
-    Object.defineProperty(globalThis, '__REACT_DEVTOOLS_GLOBAL_HOOK__', {
+    objectDefineProperty(globalThis, '__REACT_DEVTOOLS_GLOBAL_HOOK__', {
       value: rdtHook,
+      configurable: true,
+      writable: true,
+    });
+    // [!] this is a hack for chrome extensions - if we install before React DevTools, we could accidently prevent React DevTools from installing:
+    // https://github.com/facebook/react/blob/18eaf51bd51fed8dfed661d64c306759101d0bfd/packages/react-devtools-extensions/src/contentScripts/installHook.js#L30C6-L30C27
+    const originalWindowHasOwnProperty = window.hasOwnProperty;
+    let hasRanHack = false;
+    objectDefineProperty(window, 'hasOwnProperty', {
+      value: function (this: unknown) {
+        // biome-ignore lint/style/noArguments: perf
+        if (!hasRanHack && arguments[0] === '__REACT_DEVTOOLS_GLOBAL_HOOK__') {
+          globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = undefined;
+          // special falsy value to know that we've already installed before
+          hasRanHack = true;
+          return -0;
+        }
+        // biome-ignore lint/suspicious/noExplicitAny: perf
+        // biome-ignore lint/style/noArguments: perf
+        return originalWindowHasOwnProperty.apply(this, arguments as any);
+      },
+      configurable: true,
+      writable: true,
     });
   } catch {
     patchRDTHook(onActive);
@@ -73,6 +102,7 @@ export const installRDTHook = (
 export const patchRDTHook = (onActive?: () => unknown): void => {
   try {
     const rdtHook = globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    if (!rdtHook) return;
     if (!rdtHook._instrumentationSource) {
       isReactRefreshOverride = isReactRefresh(rdtHook);
       rdtHook.checkDCE = checkDCE;
@@ -80,14 +110,33 @@ export const patchRDTHook = (onActive?: () => unknown): void => {
       rdtHook.supportsFlight = true;
       rdtHook.hasUnsupportedRendererAttached = false;
       rdtHook._instrumentationSource = BIPPY_INSTRUMENTATION_STRING;
-      rdtHook._instrumentationIsActive = true;
+      rdtHook._instrumentationIsActive = false;
+      if (rdtHook.renderers.size) {
+        rdtHook._instrumentationIsActive = true;
+        onActive?.();
+        return;
+      }
+      const prevInject = rdtHook.inject;
+      rdtHook.inject = (renderer) => {
+        const id = prevInject(renderer);
+        rdtHook._instrumentationIsActive = true;
+        onActive?.();
+        return id;
+      };
+    }
+    if (
+      rdtHook.renderers.size ||
+      rdtHook._instrumentationIsActive ||
+      isReactRefresh(rdtHook) ||
+      isRealReactDevtools(rdtHook)
+    ) {
+      onActive?.();
     }
   } catch {}
-  onActive?.();
 };
 
 export const hasRDTHook = (): boolean => {
-  return Object.prototype.hasOwnProperty.call(
+  return objectHasOwnProperty.call(
     globalThis,
     '__REACT_DEVTOOLS_GLOBAL_HOOK__',
   );
@@ -103,39 +152,14 @@ export const getRDTHook = (
     return installRDTHook(onActive);
   }
   patchRDTHook(onActive);
-  return globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+  // must exist at this point
+  return globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ as ReactDevToolsGlobalHook;
 };
 
-let isRegistered = false;
-
-/**
- * Returns true if the service worker is registered.
- */
-export const isServiceWorkerRegistered = (): boolean => {
-  return isRegistered;
-};
-
-try {
-  // __REACT_DEVTOOLS_GLOBAL_HOOK__ must exist before React is ever executed
-  if (
+export const isClientEnvironment = (): boolean => {
+  return Boolean(
     typeof window !== 'undefined' &&
-    // @ts-expect-error `document` may not be defined in some enviroments
-    (window.document?.createElement ||
-      window.navigator?.product === 'ReactNative')
-  ) {
-    installRDTHook();
-    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker
-        .register(new URL('./sw.js', import.meta.url), {
-          scope: '/',
-        })
-        .then(() => {
-          isRegistered = true;
-        })
-        .catch(() => {});
-    }
-  }
-} catch {}
-
-export const INSTALL_HOOK_SCRIPT_STRING =
-  '(()=>{try{var t=()=>{};const n=new Map;let o=0;globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__={checkDCE:t,supportsFiber:!0,supportsFlight:!0,hasUnsupportedRendererAttached:!1,renderers:n,onCommitFiberRoot:t,onCommitFiberUnmount:t,onPostCommitFiberRoot:t,inject(t){var e=++o;return n.set(e,t),globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__._instrumentationIsActive=!0,e},_instrumentationIsActive:!1}}catch{}})()';
+      (window.document?.createElement ||
+        window.navigator?.product === 'ReactNative'),
+  );
+};

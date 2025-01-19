@@ -1,3 +1,10 @@
-export * from './rdt-hook.js';
+import { getRDTHook, isClientEnvironment } from './rdt-hook.js';
+
 export * from './core.js';
-export type * from './types.js';
+
+try {
+  // __REACT_DEVTOOLS_GLOBAL_HOOK__ must exist before React is ever executed
+  if (isClientEnvironment()) {
+    getRDTHook();
+  }
+} catch {}
